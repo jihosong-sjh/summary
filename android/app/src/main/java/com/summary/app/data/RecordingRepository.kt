@@ -125,7 +125,9 @@ class RecordingRepository(
         dao.update(
             (dao.getById(localId) ?: local).copy(
                 serverId = created.id,
-                status = remoteToLocalStatus(created.status),
+                status = LocalRecordingStatus.UPLOADING,
+                uploadProgress = 0,
+                errorMessage = null,
                 updatedAtMillis = System.currentTimeMillis(),
             ),
         )
@@ -188,7 +190,9 @@ class RecordingRepository(
         musicSearchDao.update(
             (musicSearchDao.getById(localId) ?: local).copy(
                 serverId = created.id,
-                status = remoteToLocalMusicSearchStatus(created.status),
+                status = LocalMusicSearchStatus.UPLOADING,
+                uploadProgress = 0,
+                errorMessage = null,
                 updatedAtMillis = System.currentTimeMillis(),
             ),
         )
@@ -292,6 +296,28 @@ class RecordingRepository(
             runCatching { api.deleteMusicSearch(local.serverId) }
         }
         musicSearchDao.update(local.copy(status = LocalMusicSearchStatus.DELETED, updatedAtMillis = System.currentTimeMillis()))
+    }
+
+    suspend fun markRecordingUploadError(localId: Long, message: String, retrying: Boolean) {
+        val local = dao.getById(localId) ?: return
+        dao.update(
+            local.copy(
+                status = if (retrying) LocalRecordingStatus.UPLOADING else LocalRecordingStatus.FAILED,
+                errorMessage = if (retrying) "업로드 실패, 재시도 예정: $message" else "업로드 실패: $message",
+                updatedAtMillis = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    suspend fun markMusicSearchUploadError(localId: Long, message: String, retrying: Boolean) {
+        val local = musicSearchDao.getById(localId) ?: return
+        musicSearchDao.update(
+            local.copy(
+                status = if (retrying) LocalMusicSearchStatus.UPLOADING else LocalMusicSearchStatus.FAILED,
+                errorMessage = if (retrying) "업로드 실패, 재시도 예정: $message" else "업로드 실패: $message",
+                updatedAtMillis = System.currentTimeMillis(),
+            ),
+        )
     }
 
     private fun remoteToLocalStatus(status: String): LocalRecordingStatus = when (status) {

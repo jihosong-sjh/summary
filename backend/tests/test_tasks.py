@@ -27,7 +27,7 @@ def test_music_search_worker_completes_no_lyrics(tmp_path, monkeypatch):
             destination.write_bytes(b"audio")
 
     class FakeOpenAI:
-        def transcribe_file(self, path):
+        def transcribe_file(self, path, prompt=None):
             return "   "
 
         def find_music_candidates(self, transcript_excerpt):
@@ -59,7 +59,7 @@ def test_music_search_worker_stores_candidates(tmp_path, monkeypatch):
             destination.write_bytes(b"audio")
 
     class FakeOpenAI:
-        def transcribe_file(self, path):
+        def transcribe_file(self, path, prompt=None):
             return "hello from the other side"
 
         def find_music_candidates(self, transcript_excerpt):
@@ -105,7 +105,7 @@ def test_music_search_worker_marks_openai_failure(tmp_path, monkeypatch):
             destination.write_bytes(b"audio")
 
     class FakeOpenAI:
-        def transcribe_file(self, path):
+        def transcribe_file(self, path, prompt=None):
             return "recognizable lyric"
 
         def find_music_candidates(self, transcript_excerpt):

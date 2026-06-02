@@ -17,12 +17,14 @@ class UploadRecordingWorker(
             repository.uploadRecording(localId)
             Result.success()
         }.getOrElse {
-            if (runAttemptCount < 5) Result.retry() else Result.failure()
+            val retrying = runAttemptCount < MAX_RETRY_ATTEMPTS
+            repository.markRecordingUploadError(localId, it.uploadErrorMessage(), retrying)
+            if (retrying) Result.retry() else Result.failure()
         }
     }
 
     companion object {
         const val KEY_LOCAL_ID = "local_id"
+        private const val MAX_RETRY_ATTEMPTS = 5
     }
 }
-

@@ -192,6 +192,8 @@ USB `adb reverse` 방식:
 ```bash
 cd android
 gradle :app:assembleDebug -PSUMMARY_API_BASE_URL=http://127.0.0.1:8000/
+gradle :app:assembleDebug -PSUMMARY_API_BASE_URL=http://172.30.1.18:8000/
+adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 생성 APK:

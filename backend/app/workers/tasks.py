@@ -136,7 +136,14 @@ def _process_music_search_with_session(db: Session, music_search_id: str) -> Non
         music_search.error_message = None
         db.commit()
 
-        transcript = ai.transcribe_file(audio_path).strip()
+        transcript = ai.transcribe_file(
+            audio_path,
+            prompt=(
+                "Transcribe only clearly audible song lyrics from this short music clip. "
+                "Ignore instruments, crowd noise, and commentary. Preserve Korean, English, "
+                "or any other language as heard. If no lyrics are audible, return empty text."
+            ),
+        ).strip()
         excerpt = _transcript_excerpt(transcript)
         music_search.transcript_excerpt = excerpt
 
