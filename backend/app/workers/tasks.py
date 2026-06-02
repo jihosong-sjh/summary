@@ -142,7 +142,7 @@ def _process_music_search_with_session(db: Session, music_search_id: str) -> Non
 
         if not excerpt:
             music_search.result = _empty_music_search_result(
-                no_match_reason="No recognizable lyrics were transcribed.",
+                no_match_reason="인식된 가사가 없어 후보를 찾지 못했습니다.",
             ).model_dump()
         else:
             result = ai.find_music_candidates(excerpt)

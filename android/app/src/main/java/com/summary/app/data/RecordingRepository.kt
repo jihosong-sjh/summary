@@ -3,6 +3,7 @@ package com.summary.app.data
 import android.content.Context
 import androidx.work.Constraints
 import androidx.work.Data
+import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
@@ -13,6 +14,7 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
+import java.util.concurrent.TimeUnit
 
 class RecordingRepository(
     private val context: Context,
@@ -88,11 +90,16 @@ class RecordingRepository(
         workManager.enqueue(request)
     }
 
-    fun enqueueSync() {
+    fun enqueueSync(delaySeconds: Long = 0) {
         val request = OneTimeWorkRequestBuilder<StatusSyncWorker>()
             .setConstraints(Constraints(requiredNetworkType = NetworkType.CONNECTED))
+            .setInitialDelay(delaySeconds, TimeUnit.SECONDS)
             .build()
-        workManager.enqueue(request)
+        if (delaySeconds > 0) {
+            workManager.enqueue(request)
+        } else {
+            workManager.enqueueUniqueWork(SYNC_WORK_NAME, ExistingWorkPolicy.REPLACE, request)
+        }
     }
 
     suspend fun uploadRecording(localId: Long) {
@@ -222,10 +229,14 @@ class RecordingRepository(
         enqueueSync()
     }
 
-    suspend fun syncRemote() {
+    suspend fun syncRemote(): Boolean {
+        var hasPendingRemoteWork = false
         api.recordings().forEach { remote ->
             val local = dao.getByServerId(remote.id) ?: return@forEach
             val status = remoteToLocalStatus(remote.status)
+            if (status.isServerProcessing()) {
+                hasPendingRemoteWork = true
+            }
             var transcript: String? = local.transcript
             var summaryJson: String? = local.summaryJson
             if (status == LocalRecordingStatus.COMPLETED) {
@@ -246,6 +257,9 @@ class RecordingRepository(
         api.musicSearches().forEach { remote ->
             val local = musicSearchDao.getByServerId(remote.id) ?: return@forEach
             val status = remoteToLocalMusicSearchStatus(remote.status)
+            if (status.isServerProcessing()) {
+                hasPendingRemoteWork = true
+            }
             musicSearchDao.update(
                 local.copy(
                     status = status,
@@ -256,6 +270,7 @@ class RecordingRepository(
                 ),
             )
         }
+        return hasPendingRemoteWork
     }
 
     suspend fun updateLocalSummary(localId: Long, summaryJson: String) {
@@ -300,11 +315,26 @@ class RecordingRepository(
         else -> LocalMusicSearchStatus.FAILED
     }
 
+    private fun LocalRecordingStatus.isServerProcessing(): Boolean = this in setOf(
+        LocalRecordingStatus.UPLOADED,
+        LocalRecordingStatus.TRANSCRIBING,
+        LocalRecordingStatus.SUMMARIZING,
+    )
+
+    private fun LocalMusicSearchStatus.isServerProcessing(): Boolean = this in setOf(
+        LocalMusicSearchStatus.UPLOADED,
+        LocalMusicSearchStatus.ANALYZING,
+    )
+
     private fun daoSnapshot(localId: Long): RecordingEntity? = kotlinx.coroutines.runBlocking {
         dao.getById(localId)
     }
 
     private fun musicSearchDaoSnapshot(localId: Long): MusicSearchEntity? = kotlinx.coroutines.runBlocking {
         musicSearchDao.getById(localId)
+    }
+
+    companion object {
+        private const val SYNC_WORK_NAME = "status-sync"
     }
 }

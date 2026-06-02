@@ -45,7 +45,7 @@ def test_music_search_worker_completes_no_lyrics(tmp_path, monkeypatch):
     assert saved.status == "completed"
     assert saved.transcript_excerpt == ""
     assert result.candidates == []
-    assert result.no_match_reason == "No recognizable lyrics were transcribed."
+    assert result.no_match_reason == "인식된 가사가 없어 후보를 찾지 못했습니다."
 
 
 def test_music_search_worker_stores_candidates(tmp_path, monkeypatch):

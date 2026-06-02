@@ -12,11 +12,17 @@ class StatusSyncWorker(
     override suspend fun doWork(): Result {
         val repository = (applicationContext as SummaryApplication).container.repository
         return runCatching {
-            repository.syncRemote()
+            val hasPendingRemoteWork = repository.syncRemote()
+            if (hasPendingRemoteWork) {
+                repository.enqueueSync(SYNC_POLL_DELAY_SECONDS)
+            }
             Result.success()
         }.getOrElse {
             if (runAttemptCount < 5) Result.retry() else Result.failure()
         }
     }
-}
 
+    companion object {
+        private const val SYNC_POLL_DELAY_SECONDS = 3L
+    }
+}
