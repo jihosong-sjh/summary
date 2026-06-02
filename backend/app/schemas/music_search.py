@@ -16,6 +16,11 @@ class MusicCandidate(BaseModel):
     confidence: float = Field(ge=0, le=1)
     match_reason: str
     source_urls: list[str] = Field(default_factory=list)
+    provider: str | None = None
+    match_type: str | None = None
+    isrc: str | None = None
+    artwork_url: str | None = None
+    external_ids: dict[str, str] | None = None
 
 
 class MusicSearchResult(BaseModel):
@@ -23,6 +28,8 @@ class MusicSearchResult(BaseModel):
     candidates: list[MusicCandidate]
     no_match_reason: str | None = None
     sources: list[str] = Field(default_factory=list)
+    provider: str | None = None
+    match_type: str | None = None
 
 
 class MusicSearchResponse(BaseModel):

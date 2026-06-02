@@ -53,6 +53,16 @@ class FakeQueue:
         self.music_search_enqueued.append(music_search_id)
 
 
+@pytest.fixture(autouse=True)
+def clear_audd_token(monkeypatch):
+    monkeypatch.setenv("AUDD_API_TOKEN", "")
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
 @pytest.fixture()
 def client(tmp_path, monkeypatch) -> Generator[tuple[TestClient, sessionmaker, FakeStorage, FakeQueue], None, None]:
     monkeypatch.setenv("APP_ENV", "test")

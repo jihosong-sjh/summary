@@ -14,6 +14,7 @@ from app.services.queue import ProcessingQueue
 from app.services.storage import StorageService
 
 router = APIRouter()
+LOW_CONFIDENCE_RETRY_THRESHOLD = 0.5
 
 
 def _music_search_or_404(db: Session, user: User, music_search_id: str) -> MusicSearch:
@@ -135,11 +136,35 @@ def retry_music_search(
     queue: ProcessingQueue = Depends(get_processing_queue),
 ) -> MusicSearch:
     music_search = _music_search_or_404(db, user, music_search_id)
-    if music_search.status != MusicSearchStatus.failed.value:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only failed music searches can be retried")
+    if not _can_retry_music_search(music_search):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only failed or low-confidence completed music searches can be retried",
+        )
     music_search.status = MusicSearchStatus.uploaded.value
     music_search.error_message = None
+    music_search.transcript_excerpt = None
+    music_search.result = None
     db.commit()
     queue.enqueue_music_search_processing(music_search.id)
     db.refresh(music_search)
     return music_search
+
+
+def _can_retry_music_search(music_search: MusicSearch) -> bool:
+    if music_search.status == MusicSearchStatus.failed.value:
+        return True
+    if music_search.status != MusicSearchStatus.completed.value:
+        return False
+    result = music_search.result
+    if not isinstance(result, dict):
+        return True
+    candidates = result.get("candidates")
+    if not isinstance(candidates, list) or not candidates:
+        return True
+    confidences = [
+        candidate.get("confidence")
+        for candidate in candidates
+        if isinstance(candidate, dict) and isinstance(candidate.get("confidence"), int | float)
+    ]
+    return bool(confidences) and max(confidences) < LOW_CONFIDENCE_RETRY_THRESHOLD

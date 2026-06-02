@@ -84,6 +84,11 @@ data class MusicCandidate(
     val confidence: Double,
     @SerializedName("match_reason") val matchReason: String,
     @SerializedName("source_urls") val sourceUrls: List<String>,
+    val provider: String?,
+    @SerializedName("match_type") val matchType: String?,
+    val isrc: String?,
+    @SerializedName("artwork_url") val artworkUrl: String?,
+    @SerializedName("external_ids") val externalIds: Map<String, String>?,
 )
 
 data class MusicSearchResult(
@@ -91,6 +96,8 @@ data class MusicSearchResult(
     val candidates: List<MusicCandidate>,
     @SerializedName("no_match_reason") val noMatchReason: String?,
     val sources: List<String>,
+    val provider: String?,
+    @SerializedName("match_type") val matchType: String?,
 )
 
 data class MusicSearchResponse(

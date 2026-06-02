@@ -45,6 +45,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FloatingActionButton
@@ -522,6 +523,7 @@ private fun MusicSearchDetailScreen(viewModel: MainViewModel, navController: Nav
         }
 
         val result = parseMusicSearchResult(musicSearch!!.resultJson)
+        val canRetry = canRetryMusicSearch(musicSearch!!, result)
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -536,6 +538,18 @@ private fun MusicSearchDetailScreen(viewModel: MainViewModel, navController: Nav
                         Text(it, style = MaterialTheme.typography.bodyMedium)
                     }
                     musicSearch!!.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    if (canRetry) {
+                        FilledTonalButton(
+                            onClick = {
+                                viewModel.retryMusicSearch(localId) {
+                                    Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null)
+                            Text("다시 분석")
+                        }
+                    }
                 }
             }
 
@@ -550,7 +564,12 @@ private fun MusicSearchDetailScreen(viewModel: MainViewModel, navController: Nav
                 }
             } else {
                 items(result.candidates) { candidate ->
-                    MusicCandidateCard(candidate, onOpenUrl = { openUrl(context, it) })
+                    MusicCandidateCard(
+                        candidate = candidate,
+                        resultProvider = result.provider,
+                        resultMatchType = result.matchType,
+                        onOpenUrl = { openUrl(context, it) },
+                    )
                 }
             }
 
@@ -584,13 +603,25 @@ private fun MusicSearchDetailScreen(viewModel: MainViewModel, navController: Nav
 }
 
 @Composable
-private fun MusicCandidateCard(candidate: MusicCandidate, onOpenUrl: (String) -> Unit) {
+private fun MusicCandidateCard(
+    candidate: MusicCandidate,
+    resultProvider: String?,
+    resultMatchType: String?,
+    onOpenUrl: (String) -> Unit,
+) {
+    val badge = musicProviderBadge(
+        provider = candidate.provider ?: resultProvider,
+        matchType = candidate.matchType ?: resultMatchType,
+    )
     Card(
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            badge?.let {
+                AssistChip(onClick = {}, label = { Text(it) })
+            }
             Text(candidate.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(candidate.artist)
             val details = listOfNotNull(candidate.album, candidate.releaseYear?.toString()).joinToString(" · ")
@@ -743,6 +774,21 @@ private fun musicSearchStatusLabel(status: LocalMusicSearchStatus): String = whe
     LocalMusicSearchStatus.COMPLETED -> "완료"
     LocalMusicSearchStatus.FAILED -> "실패"
     LocalMusicSearchStatus.DELETED -> "삭제됨"
+}
+
+private fun canRetryMusicSearch(musicSearch: MusicSearchEntity, result: MusicSearchResult?): Boolean {
+    if (musicSearch.serverId == null) return false
+    if (musicSearch.status == LocalMusicSearchStatus.FAILED) return true
+    if (musicSearch.status != LocalMusicSearchStatus.COMPLETED) return false
+    val candidates = result?.candidates.orEmpty()
+    if (candidates.isEmpty()) return true
+    return candidates.maxOfOrNull { it.confidence }?.let { it < 0.5 } ?: true
+}
+
+private fun musicProviderBadge(provider: String?, matchType: String?): String? = when {
+    provider == "audd" || matchType == "audio_fingerprint" -> "AudD 오디오 인식"
+    provider == "openai" || matchType == "lyrics_fallback" -> "가사 기반 후보"
+    else -> null
 }
 
 private fun parseMusicSearchResult(resultJson: String?): MusicSearchResult? {

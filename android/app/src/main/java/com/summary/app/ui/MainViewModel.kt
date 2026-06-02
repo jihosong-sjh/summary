@@ -104,7 +104,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         runCatching {
             val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
             val file = File(context.filesDir, "music-searches/music-$stamp.m4a")
-            musicRecorder.start(file)
+            musicRecorder.start(file, bitRate = AudioRecorder.MUSIC_SEARCH_BIT_RATE)
             RecordingForegroundService.start(context)
             musicStartedAtMillis = System.currentTimeMillis()
             _musicSearchSessionState.value = MusicSearchSessionState(isRecording = true)
@@ -159,6 +159,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteMusicSearch(localId: Long) {
         viewModelScope.launch { repository.deleteMusicSearch(localId) }
+    }
+
+    fun retryMusicSearch(localId: Long, onError: (String) -> Unit) {
+        viewModelScope.launch {
+            runCatching { repository.retryMusicSearch(localId) }
+                .onFailure { onError(it.message ?: "다시 분석을 시작할 수 없습니다.") }
+        }
     }
 
     override fun onCleared() {

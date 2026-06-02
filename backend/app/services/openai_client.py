@@ -52,6 +52,11 @@ MUSIC_SEARCH_JSON_SCHEMA: dict[str, Any] = {
                     "confidence": {"type": "number", "minimum": 0, "maximum": 1},
                     "match_reason": {"type": "string"},
                     "source_urls": {"type": "array", "items": {"type": "string"}},
+                    "provider": {"type": ["string", "null"]},
+                    "match_type": {"type": ["string", "null"]},
+                    "isrc": {"type": ["string", "null"]},
+                    "artwork_url": {"type": ["string", "null"]},
+                    "external_ids": {"type": "null"},
                 },
                 "required": [
                     "title",
@@ -61,13 +66,27 @@ MUSIC_SEARCH_JSON_SCHEMA: dict[str, Any] = {
                     "confidence",
                     "match_reason",
                     "source_urls",
+                    "provider",
+                    "match_type",
+                    "isrc",
+                    "artwork_url",
+                    "external_ids",
                 ],
             },
         },
         "no_match_reason": {"type": ["string", "null"]},
         "sources": {"type": "array", "items": {"type": "string"}},
+        "provider": {"type": ["string", "null"]},
+        "match_type": {"type": ["string", "null"]},
     },
-    "required": ["query_text", "candidates", "no_match_reason", "sources"],
+    "required": [
+        "query_text",
+        "candidates",
+        "no_match_reason",
+        "sources",
+        "provider",
+        "match_type",
+    ],
 }
 
 
@@ -155,6 +174,7 @@ class OpenAIService:
                         "You identify song candidates from a short speech-to-text excerpt of lyrics. "
                         "Always use web search. Return candidate songs, not a definitive identification. "
                         "Do not provide full lyrics. Use source URLs for every meaningful candidate when possible. "
+                        "Set provider to openai and match_type to lyrics_fallback. "
                         "If the excerpt is too vague, noisy, instrumental, or not lyrics, return no candidates "
                         "and explain briefly in no_match_reason."
                     ),

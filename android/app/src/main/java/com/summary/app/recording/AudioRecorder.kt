@@ -10,7 +10,7 @@ class AudioRecorder(private val context: Context) {
     var outputFile: File? = null
         private set
 
-    fun start(file: File) {
+    fun start(file: File, bitRate: Int = DEFAULT_BIT_RATE) {
         stopSilently()
         file.parentFile?.mkdirs()
         outputFile = file
@@ -21,7 +21,7 @@ class AudioRecorder(private val context: Context) {
             setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
             setAudioChannels(1)
             setAudioSamplingRate(44_100)
-            setAudioEncodingBitRate(48_000)
+            setAudioEncodingBitRate(bitRate)
             setOutputFile(file.absolutePath)
             prepare()
             start()
@@ -52,5 +52,9 @@ class AudioRecorder(private val context: Context) {
     fun stopSilently() {
         runCatching { stop() }
     }
-}
 
+    companion object {
+        const val DEFAULT_BIT_RATE = 48_000
+        const val MUSIC_SEARCH_BIT_RATE = 96_000
+    }
+}

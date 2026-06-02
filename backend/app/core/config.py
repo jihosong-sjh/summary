@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     openai_music_search_model: str = "gpt-5.5"
     openai_transcription_max_bytes: int = 24 * 1024 * 1024
 
+    audd_api_token: str | None = None
+    audd_api_url: str = "https://api.audd.io/"
+    audd_return: str = "apple_music,spotify"
+    audd_market: str = "us"
+
     s3_endpoint_url: str | None = None
     s3_region: str = "us-east-1"
     s3_bucket: str = "summary-recordings"

@@ -298,6 +298,22 @@ class RecordingRepository(
         musicSearchDao.update(local.copy(status = LocalMusicSearchStatus.DELETED, updatedAtMillis = System.currentTimeMillis()))
     }
 
+    suspend fun retryMusicSearch(localId: Long) {
+        val local = musicSearchDao.getById(localId) ?: return
+        val serverId = local.serverId ?: error("서버에 업로드된 노래찾기만 다시 분석할 수 있습니다.")
+        val retried = api.retryMusicSearch(serverId)
+        musicSearchDao.update(
+            local.copy(
+                status = remoteToLocalMusicSearchStatus(retried.status),
+                transcriptExcerpt = retried.transcriptExcerpt,
+                resultJson = retried.result?.let { gson.toJson(it) },
+                errorMessage = retried.errorMessage,
+                updatedAtMillis = System.currentTimeMillis(),
+            ),
+        )
+        enqueueSync()
+    }
+
     suspend fun markRecordingUploadError(localId: Long, message: String, retrying: Boolean) {
         val local = dao.getById(localId) ?: return
         dao.update(
