@@ -19,3 +19,16 @@ class ProcessingQueue:
 
         process_recording_task.delay(recording_id)
 
+    def enqueue_music_search_processing(self, music_search_id: str) -> None:
+        settings = get_settings()
+        if settings.queue_mode == "disabled":
+            return
+        if settings.queue_mode == "inline":
+            from app.workers.tasks import process_music_search
+
+            process_music_search(music_search_id)
+            return
+
+        from app.workers.tasks import process_music_search_task
+
+        process_music_search_task.delay(music_search_id)

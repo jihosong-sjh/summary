@@ -37,7 +37,7 @@ class AppContainer(private val application: Application) {
         application,
         RecordingDatabase::class.java,
         "summary.db",
-    ).build()
+    ).addMigrations(RecordingDatabase.MIGRATION_1_2).build()
 
     private val tokenRefreshClient = OkHttpClient()
 
@@ -84,6 +84,7 @@ class AppContainer(private val application: Application) {
         api = retrofit.create(SummaryApi::class.java),
         authStore = authStore,
         dao = database.recordingDao(),
+        musicSearchDao = database.musicSearchDao(),
         workManager = WorkManager.getInstance(application),
         uploadClient = OkHttpClient(),
         gson = gson,

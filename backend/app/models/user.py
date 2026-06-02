@@ -17,4 +17,4 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     recordings = relationship("Recording", back_populates="user", cascade="all, delete-orphan")
-
+    music_searches = relationship("MusicSearch", back_populates="user", cascade="all, delete-orphan")

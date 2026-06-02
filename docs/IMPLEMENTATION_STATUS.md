@@ -12,6 +12,8 @@
   - 녹음 동의 안내
   - 녹음 목록
   - 녹음 화면
+  - 노래찾기 탭
+  - 노래찾기 상세 화면: 곡 후보, STT excerpt, 출처 링크
   - 상세 화면: 요약, 원문, 파일 정보 탭
   - 설정/로그아웃
 - `MediaRecorder` 기반 내장 마이크 녹음을 구현했습니다.
@@ -21,6 +23,7 @@
   - 48kbps
 - 백그라운드 녹음 표시용 foreground service와 알림을 추가했습니다.
 - Room에 로컬 녹음 메타데이터, 상태, 원문, 요약 JSON을 저장합니다.
+- Room version 2에 `music_searches` 테이블을 추가했고 `1 -> 2` migration을 구성했습니다.
 - WorkManager로 업로드와 상태 동기화를 재시도 가능하게 구성했습니다.
 - Retrofit/OkHttp로 백엔드 API와 presigned URL 업로드를 연결했습니다.
 - 요약 텍스트 수정, 복사, 공유, 삭제 흐름을 구현했습니다.
@@ -47,6 +50,13 @@
   - `GET /recordings/{id}/transcript`
   - `GET /recordings/{id}/summary`
   - `PATCH /recordings/{id}/summary`
+  - `GET /music-searches`
+  - `POST /music-searches`
+  - `GET /music-searches/{id}`
+  - `DELETE /music-searches/{id}`
+  - `POST /music-searches/{id}/upload-url`
+  - `POST /music-searches/{id}/complete-upload`
+  - `POST /music-searches/{id}/retry`
 - 상태 enum을 서버 모델에 반영했습니다.
   - `created`
   - `uploading`
@@ -68,6 +78,7 @@
 - `transcripts`
 - `summaries`
 - `processing_jobs`
+- `music_searches`
 
 요약 스키마:
 
@@ -90,11 +101,14 @@
 - 요약은 Responses API와 Structured Outputs JSON schema로 생성합니다.
 - 기본 요약 모델은 `gpt-5.5`입니다.
 - 한국어 회의록 요약을 기본 프롬프트로 설정했습니다.
+- 노래찾기는 12초 마이크 녹음에서 추출한 짧은 STT excerpt를 기반으로 Responses API `web_search` 도구와 Structured Outputs JSON schema를 사용해 곡 후보를 찾습니다.
+- 기본 노래찾기 모델은 `OPENAI_MUSIC_SEARCH_MODEL=gpt-5.5`입니다.
 
 참고한 공식 문서:
 
 - OpenAI Speech to Text: https://developers.openai.com/api/docs/guides/speech-to-text
 - OpenAI Structured Outputs: https://developers.openai.com/api/docs/guides/structured-outputs
+- OpenAI Web search: https://developers.openai.com/api/docs/guides/tools-web-search
 - OpenAI latest model guide: https://developers.openai.com/api/docs/guides/latest-model.md
 
 ### Infra
@@ -116,7 +130,7 @@
 백엔드 테스트:
 
 ```text
-4 passed, 1 warning
+13 passed, 1 warning
 ```
 
 검증된 항목:
@@ -126,11 +140,18 @@
 - 사용자별 녹음 권한 분리
 - presigned upload URL 생성 흐름
 - 업로드 완료 후 processing queue enqueue
+- 노래찾기 사용자 격리, presigned upload URL, complete-upload queue enqueue
+- 노래찾기 worker: 가사 없음, 후보 있음, OpenAI 실패, storage 파일 없음
 - transcript/summary 조회
 - summary 수정
 - 삭제 시 storage delete 호출 및 soft delete
 
-Android 빌드는 이 작업 환경에 Gradle CLI/Android SDK가 없어 직접 실행하지 못했습니다. Android Studio에서 `android/` 프로젝트를 열어 Gradle sync와 `assembleDebug` 검증이 필요합니다.
+Android 빌드:
+
+```text
+gradle :app:assembleDebug
+BUILD SUCCESSFUL
+```
 
 ## 현재 제약과 후속 작업
 
@@ -140,4 +161,3 @@ Android 빌드는 이 작업 환경에 Gradle CLI/Android SDK가 없어 직접 �
 - worker 통합 테스트는 mock 서비스 중심 단위 테스트까지만 준비되어 있습니다. 실제 MinIO/Postgres/Redis/OpenAI e2e는 별도 API key와 샘플 오디오로 검증해야 합니다.
 - ffmpeg 청크 분할은 파일 크기 기준 안정성을 우선했습니다. 더 자연스러운 문장 경계 분할은 후속 개선 대상입니다.
 - Play Store 배포, 전화 통화 녹음, 다른 앱 내부 오디오 녹음, 실시간 자막, 화자 구분은 구현 범위에서 제외했습니다.
-

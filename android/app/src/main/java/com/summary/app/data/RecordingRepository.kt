@@ -19,14 +19,17 @@ class RecordingRepository(
     private val api: SummaryApi,
     private val authStore: AuthStore,
     private val dao: RecordingDao,
+    private val musicSearchDao: MusicSearchDao,
     private val workManager: WorkManager,
     private val uploadClient: OkHttpClient,
     private val gson: Gson,
 ) {
     val recordings: Flow<List<RecordingEntity>> = dao.observeAll()
+    val musicSearches: Flow<List<MusicSearchEntity>> = musicSearchDao.observeAll()
     val isAuthenticated: Flow<Boolean> = authStore.isAuthenticated
 
     fun observeRecording(localId: Long): Flow<RecordingEntity?> = dao.observeById(localId)
+    fun observeMusicSearch(localId: Long): Flow<MusicSearchEntity?> = musicSearchDao.observeById(localId)
 
     suspend fun login(email: String, password: String) {
         authStore.save(api.login(AuthRequest(email, password)))
@@ -55,10 +58,32 @@ class RecordingRepository(
         return id
     }
 
+    suspend fun createLocalMusicSearch(file: File, durationSeconds: Int?): Long {
+        val entity = MusicSearchEntity(
+            filePath = file.absolutePath,
+            durationSeconds = durationSeconds,
+            sizeBytes = file.length(),
+            status = LocalMusicSearchStatus.LOCAL,
+            createdAtMillis = System.currentTimeMillis(),
+            updatedAtMillis = System.currentTimeMillis(),
+        )
+        val id = musicSearchDao.insert(entity)
+        enqueueMusicSearchUpload(id)
+        return id
+    }
+
     fun enqueueUpload(localId: Long) {
         val request = OneTimeWorkRequestBuilder<UploadRecordingWorker>()
             .setConstraints(Constraints(requiredNetworkType = NetworkType.CONNECTED))
             .setInputData(Data.Builder().putLong(KEY_LOCAL_ID, localId).build())
+            .build()
+        workManager.enqueue(request)
+    }
+
+    fun enqueueMusicSearchUpload(localId: Long) {
+        val request = OneTimeWorkRequestBuilder<UploadMusicSearchWorker>()
+            .setConstraints(Constraints(requiredNetworkType = NetworkType.CONNECTED))
+            .setInputData(Data.Builder().putLong(UploadMusicSearchWorker.KEY_LOCAL_ID, localId).build())
             .build()
         workManager.enqueue(request)
     }
@@ -134,6 +159,69 @@ class RecordingRepository(
         enqueueSync()
     }
 
+    suspend fun uploadMusicSearch(localId: Long) {
+        val local = musicSearchDao.getById(localId) ?: return
+        val file = File(local.filePath)
+        if (!file.exists()) {
+            musicSearchDao.update(local.copy(status = LocalMusicSearchStatus.FAILED, errorMessage = "Local file missing"))
+            return
+        }
+
+        musicSearchDao.update(local.copy(status = LocalMusicSearchStatus.UPLOADING, uploadProgress = 0, errorMessage = null))
+        val created = if (local.serverId == null) {
+            api.createMusicSearch(
+                MusicSearchCreate(
+                    durationSeconds = local.durationSeconds,
+                    contentType = local.contentType,
+                ),
+            )
+        } else {
+            api.musicSearch(local.serverId)
+        }
+        musicSearchDao.update(
+            (musicSearchDao.getById(localId) ?: local).copy(
+                serverId = created.id,
+                status = remoteToLocalMusicSearchStatus(created.status),
+                updatedAtMillis = System.currentTimeMillis(),
+            ),
+        )
+
+        val upload = api.musicSearchUploadUrl(created.id, UploadUrlRequest(local.contentType, file.name))
+        val mediaType = local.contentType.toMediaTypeOrNull()
+        val body = ProgressRequestBody(file, mediaType) { progress ->
+            val current = musicSearchDaoSnapshot(localId) ?: return@ProgressRequestBody
+            runCatching {
+                kotlinx.coroutines.runBlocking {
+                    musicSearchDao.update(current.copy(uploadProgress = progress, updatedAtMillis = System.currentTimeMillis()))
+                }
+            }
+        }
+        val response = uploadClient.newCall(
+            Request.Builder()
+                .url(upload.uploadUrl)
+                .put(body)
+                .header("Content-Type", local.contentType)
+                .build(),
+        ).execute()
+        response.use {
+            if (!it.isSuccessful) error("Upload failed: HTTP ${it.code}")
+        }
+
+        val completed = api.completeMusicSearchUpload(
+            created.id,
+            CompleteUploadRequest(file.length().toInt(), local.durationSeconds),
+        )
+        musicSearchDao.update(
+            (musicSearchDao.getById(localId) ?: local).copy(
+                serverId = completed.id,
+                status = remoteToLocalMusicSearchStatus(completed.status),
+                uploadProgress = 100,
+                updatedAtMillis = System.currentTimeMillis(),
+            ),
+        )
+        enqueueSync()
+    }
+
     suspend fun syncRemote() {
         api.recordings().forEach { remote ->
             val local = dao.getByServerId(remote.id) ?: return@forEach
@@ -155,6 +243,19 @@ class RecordingRepository(
                 ),
             )
         }
+        api.musicSearches().forEach { remote ->
+            val local = musicSearchDao.getByServerId(remote.id) ?: return@forEach
+            val status = remoteToLocalMusicSearchStatus(remote.status)
+            musicSearchDao.update(
+                local.copy(
+                    status = status,
+                    transcriptExcerpt = remote.transcriptExcerpt ?: local.transcriptExcerpt,
+                    resultJson = remote.result?.let { gson.toJson(it) } ?: local.resultJson,
+                    errorMessage = remote.errorMessage,
+                    updatedAtMillis = System.currentTimeMillis(),
+                ),
+            )
+        }
     }
 
     suspend fun updateLocalSummary(localId: Long, summaryJson: String) {
@@ -170,6 +271,14 @@ class RecordingRepository(
         dao.update(local.copy(status = LocalRecordingStatus.DELETED, updatedAtMillis = System.currentTimeMillis()))
     }
 
+    suspend fun deleteMusicSearch(localId: Long) {
+        val local = musicSearchDao.getById(localId) ?: return
+        if (local.serverId != null) {
+            runCatching { api.deleteMusicSearch(local.serverId) }
+        }
+        musicSearchDao.update(local.copy(status = LocalMusicSearchStatus.DELETED, updatedAtMillis = System.currentTimeMillis()))
+    }
+
     private fun remoteToLocalStatus(status: String): LocalRecordingStatus = when (status) {
         "created" -> LocalRecordingStatus.LOCAL
         "uploading" -> LocalRecordingStatus.UPLOADING
@@ -181,8 +290,21 @@ class RecordingRepository(
         else -> LocalRecordingStatus.FAILED
     }
 
+    private fun remoteToLocalMusicSearchStatus(status: String): LocalMusicSearchStatus = when (status) {
+        "created" -> LocalMusicSearchStatus.LOCAL
+        "uploading" -> LocalMusicSearchStatus.UPLOADING
+        "uploaded" -> LocalMusicSearchStatus.UPLOADED
+        "analyzing" -> LocalMusicSearchStatus.ANALYZING
+        "completed" -> LocalMusicSearchStatus.COMPLETED
+        "deleted" -> LocalMusicSearchStatus.DELETED
+        else -> LocalMusicSearchStatus.FAILED
+    }
+
     private fun daoSnapshot(localId: Long): RecordingEntity? = kotlinx.coroutines.runBlocking {
         dao.getById(localId)
     }
-}
 
+    private fun musicSearchDaoSnapshot(localId: Long): MusicSearchEntity? = kotlinx.coroutines.runBlocking {
+        musicSearchDao.getById(localId)
+    }
+}

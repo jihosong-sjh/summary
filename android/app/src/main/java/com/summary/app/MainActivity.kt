@@ -3,6 +3,7 @@ package com.summary.app
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
@@ -26,10 +27,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -42,12 +45,16 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -78,7 +85,11 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.google.gson.Gson
+import com.summary.app.data.LocalMusicSearchStatus
 import com.summary.app.data.LocalRecordingStatus
+import com.summary.app.data.MusicCandidate
+import com.summary.app.data.MusicSearchEntity
+import com.summary.app.data.MusicSearchResult
 import com.summary.app.data.RecordingEntity
 import com.summary.app.data.SummaryPayload
 import com.summary.app.ui.MainViewModel
@@ -88,6 +99,12 @@ import java.util.Date
 import java.util.Locale
 
 private val summaryFormatterGson = Gson()
+private val musicFormatterGson = Gson()
+
+private enum class HomeTab {
+    RECORDINGS,
+    MUSIC,
+}
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
@@ -117,13 +134,17 @@ fun SummaryApp(viewModel: MainViewModel) {
 
     NavHost(navController = navController, startDestination = "auth") {
         composable("auth") { AuthScreen(viewModel) }
-        composable("consent") { ConsentScreen(onContinue = { navController.navigate("list") }) }
-        composable("list") { RecordingListScreen(viewModel, navController) }
+        composable("consent") { ConsentScreen(onContinue = { navController.navigate("home") }) }
+        composable("home") { HomeScreen(viewModel, navController) }
         composable("record") { RecorderScreen(viewModel, navController) }
         composable("settings") { SettingsScreen(viewModel, navController) }
         composable("detail/{localId}") { entry ->
             val id = entry.arguments?.getString("localId")?.toLongOrNull()
             if (id != null) DetailScreen(viewModel, navController, id)
+        }
+        composable("music-detail/{localId}") { entry ->
+            val id = entry.arguments?.getString("localId")?.toLongOrNull()
+            if (id != null) MusicSearchDetailScreen(viewModel, navController, id)
         }
     }
 }
@@ -185,13 +206,13 @@ private fun ConsentScreen(onContinue: () -> Unit) {
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
-private fun RecordingListScreen(viewModel: MainViewModel, navController: NavHostController) {
-    val recordings by viewModel.recordings.collectAsStateWithLifecycle(initialValue = emptyList())
+private fun HomeScreen(viewModel: MainViewModel, navController: NavHostController) {
+    var selectedTab by remember { mutableStateOf(HomeTab.RECORDINGS) }
 
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("녹음") },
+                title = { Text(if (selectedTab == HomeTab.RECORDINGS) "녹음" else "노래찾기") },
                 actions = {
                     IconButton(onClick = { viewModel.refreshStatus() }) {
                         Icon(Icons.Default.Refresh, contentDescription = "새로고침")
@@ -202,25 +223,184 @@ private fun RecordingListScreen(viewModel: MainViewModel, navController: NavHost
                 },
             )
         },
+        bottomBar = {
+            NavigationBar {
+                NavigationBarItem(
+                    selected = selectedTab == HomeTab.RECORDINGS,
+                    onClick = { selectedTab = HomeTab.RECORDINGS },
+                    icon = { Icon(Icons.Default.Mic, contentDescription = null) },
+                    label = { Text("녹음") },
+                )
+                NavigationBarItem(
+                    selected = selectedTab == HomeTab.MUSIC,
+                    onClick = { selectedTab = HomeTab.MUSIC },
+                    icon = { Icon(Icons.Default.MusicNote, contentDescription = null) },
+                    label = { Text("노래찾기") },
+                )
+            }
+        },
         floatingActionButton = {
-            FloatingActionButton(onClick = { navController.navigate("record") }) {
-                Icon(Icons.Default.Mic, contentDescription = "녹음")
+            if (selectedTab == HomeTab.RECORDINGS) {
+                FloatingActionButton(onClick = { navController.navigate("record") }) {
+                    Icon(Icons.Default.Mic, contentDescription = "녹음")
+                }
             }
         },
     ) { padding ->
-        if (recordings.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Text("저장된 녹음이 없습니다.")
+        when (selectedTab) {
+            HomeTab.RECORDINGS -> RecordingListContent(
+                viewModel = viewModel,
+                navController = navController,
+                modifier = Modifier.padding(padding),
+            )
+            HomeTab.MUSIC -> MusicSearchTab(
+                viewModel = viewModel,
+                navController = navController,
+                modifier = Modifier.padding(padding),
+            )
+        }
+    }
+}
+
+@Composable
+private fun RecordingListContent(
+    viewModel: MainViewModel,
+    navController: NavHostController,
+    modifier: Modifier = Modifier,
+) {
+    val recordings by viewModel.recordings.collectAsStateWithLifecycle(initialValue = emptyList())
+
+    if (recordings.isEmpty()) {
+        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("저장된 녹음이 없습니다.")
+        }
+    } else {
+        LazyColumn(
+            modifier = modifier.fillMaxSize().padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            items(recordings, key = { it.localId }) { recording ->
+                RecordingRow(recording, onClick = { navController.navigate("detail/${recording.localId}") })
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                items(recordings, key = { it.localId }) { recording ->
-                    RecordingRow(recording, onClick = { navController.navigate("detail/${recording.localId}") })
+        }
+    }
+}
+
+@Composable
+private fun MusicSearchTab(
+    viewModel: MainViewModel,
+    navController: NavHostController,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val session by viewModel.musicSearchSessionState.collectAsStateWithLifecycle()
+    val musicSearches by viewModel.musicSearches.collectAsStateWithLifecycle(initialValue = emptyList())
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+        val audioGranted = result[Manifest.permission.RECORD_AUDIO] == true
+        if (audioGranted) viewModel.startMusicSearch(context)
+        else Toast.makeText(context, "마이크 권한이 필요합니다.", Toast.LENGTH_SHORT).show()
+    }
+
+    LazyColumn(
+        modifier = modifier.fillMaxSize().padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            MusicCapturePanel(
+                elapsedSeconds = session.elapsedSeconds,
+                isRecording = session.isRecording,
+                errorMessage = session.errorMessage,
+                onStart = {
+                    val permissions = buildList {
+                        add(Manifest.permission.RECORD_AUDIO)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                    val hasAudio = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                    val hasNotification = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+                    if (hasAudio && hasNotification) viewModel.startMusicSearch(context) else permissionLauncher.launch(permissions.toTypedArray())
+                },
+                onStop = { viewModel.stopMusicSearch(context) },
+            )
+        }
+        if (musicSearches.isEmpty()) {
+            item {
+                Box(modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
+                    Text("최근 노래찾기 기록이 없습니다.")
                 }
             }
+        } else {
+            items(musicSearches, key = { it.localId }) { musicSearch ->
+                MusicSearchRow(musicSearch, onClick = { navController.navigate("music-detail/${musicSearch.localId}") })
+            }
+        }
+    }
+}
+
+@Composable
+private fun MusicCapturePanel(
+    elapsedSeconds: Int,
+    isRecording: Boolean,
+    errorMessage: String?,
+    onStart: () -> Unit,
+    onStop: () -> Unit,
+) {
+    Card(
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Icon(Icons.Default.MusicNote, contentDescription = null)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("12초 노래찾기", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text("${formatDuration(elapsedSeconds)} / ${formatDuration(MainViewModel.MUSIC_SEARCH_SECONDS)}")
+                }
+                if (isRecording) {
+                    FilledTonalButton(onClick = onStop) {
+                        Icon(Icons.Default.Stop, contentDescription = null)
+                        Text("중지")
+                    }
+                } else {
+                    FilledTonalButton(onClick = onStart) {
+                        Icon(Icons.Default.Mic, contentDescription = null)
+                        Text("시작")
+                    }
+                }
+            }
+            LinearProgressIndicator(
+                progress = { elapsedSeconds / MainViewModel.MUSIC_SEARCH_SECONDS.toFloat() },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        }
+    }
+}
+
+@Composable
+private fun MusicSearchRow(musicSearch: MusicSearchEntity, onClick: () -> Unit) {
+    val result = parseMusicSearchResult(musicSearch.resultJson)
+    val bestCandidate = result?.candidates?.firstOrNull()
+    val title = bestCandidate?.let { "${it.title} - ${it.artist}" }
+        ?: result?.noMatchReason
+        ?: "노래찾기 ${formatDate(musicSearch.createdAtMillis)}"
+
+    Card(
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("${musicSearchStatusLabel(musicSearch.status)} · ${formatDuration(musicSearch.durationSeconds ?: 0)}")
+            if (musicSearch.status == LocalMusicSearchStatus.UPLOADING) {
+                Text("업로드 ${musicSearch.uploadProgress}%")
+            }
+            musicSearch.transcriptExcerpt?.takeIf { it.isNotBlank() }?.let {
+                Text(it, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            musicSearch.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, maxLines = 2) }
         }
     }
 }
@@ -329,6 +509,105 @@ private fun DetailScreen(viewModel: MainViewModel, navController: NavHostControl
 }
 
 @Composable
+private fun MusicSearchDetailScreen(viewModel: MainViewModel, navController: NavHostController, localId: Long) {
+    val musicSearch by viewModel.observeMusicSearch(localId).collectAsStateWithLifecycle(initialValue = null)
+    val context = LocalContext.current
+
+    Scaffold(topBar = { AppTopBar("찾은 곡 후보", navController) }) { padding ->
+        if (musicSearch == null) {
+            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                Text("노래찾기 기록을 찾을 수 없습니다.")
+            }
+            return@Scaffold
+        }
+
+        val result = parseMusicSearchResult(musicSearch!!.resultJson)
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("상태: ${musicSearchStatusLabel(musicSearch!!.status)}")
+                    Text("길이: ${formatDuration(musicSearch!!.durationSeconds ?: 0)}")
+                    musicSearch!!.transcriptExcerpt?.takeIf { it.isNotBlank() }?.let {
+                        HorizontalDivider()
+                        Text("들린 가사 조각", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        Text(it, style = MaterialTheme.typography.bodyMedium)
+                    }
+                    musicSearch!!.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                }
+            }
+
+            if (result == null) {
+                item { Text("후보 검색 결과가 아직 준비되지 않았습니다.") }
+            } else if (result.candidates.isEmpty()) {
+                item {
+                    Text(
+                        result.noMatchReason ?: "찾은 곡 후보가 없습니다.",
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                }
+            } else {
+                items(result.candidates) { candidate ->
+                    MusicCandidateCard(candidate, onOpenUrl = { openUrl(context, it) })
+                }
+            }
+
+            val sources = result?.sources.orEmpty()
+            if (sources.isNotEmpty()) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        HorizontalDivider()
+                        Text("출처", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        sources.forEach { url ->
+                            TextButton(onClick = { openUrl(context, url) }) {
+                                Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null)
+                                Text(url, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                OutlinedButton(onClick = {
+                    viewModel.deleteMusicSearch(localId)
+                    navController.popBackStack()
+                }) {
+                    Icon(Icons.Default.Delete, contentDescription = null)
+                    Text("삭제")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MusicCandidateCard(candidate: MusicCandidate, onOpenUrl: (String) -> Unit) {
+    Card(
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(candidate.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(candidate.artist)
+            val details = listOfNotNull(candidate.album, candidate.releaseYear?.toString()).joinToString(" · ")
+            if (details.isNotBlank()) Text(details, style = MaterialTheme.typography.bodyMedium)
+            Text("신뢰도 %.0f%%".format(candidate.confidence * 100))
+            Text(candidate.matchReason, style = MaterialTheme.typography.bodyMedium)
+            candidate.sourceUrls.forEach { url ->
+                TextButton(onClick = { onOpenUrl(url) }) {
+                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null)
+                    Text(url, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun SummaryTab(recording: RecordingEntity, viewModel: MainViewModel) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
@@ -423,7 +702,7 @@ private fun SettingsScreen(viewModel: MainViewModel, navController: NavHostContr
     Scaffold(topBar = { AppTopBar("설정", navController) }) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(onClick = { viewModel.logout() }, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Default.Logout, contentDescription = null)
+                Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null)
                 Text("로그아웃")
             }
         }
@@ -456,6 +735,23 @@ private fun statusLabel(status: LocalRecordingStatus): String = when (status) {
     LocalRecordingStatus.DELETED -> "삭제됨"
 }
 
+private fun musicSearchStatusLabel(status: LocalMusicSearchStatus): String = when (status) {
+    LocalMusicSearchStatus.LOCAL -> "로컬 저장됨"
+    LocalMusicSearchStatus.UPLOADING -> "업로드 중"
+    LocalMusicSearchStatus.UPLOADED -> "업로드 완료"
+    LocalMusicSearchStatus.ANALYZING -> "후보 검색 중"
+    LocalMusicSearchStatus.COMPLETED -> "완료"
+    LocalMusicSearchStatus.FAILED -> "실패"
+    LocalMusicSearchStatus.DELETED -> "삭제됨"
+}
+
+private fun parseMusicSearchResult(resultJson: String?): MusicSearchResult? {
+    if (resultJson.isNullOrBlank()) return null
+    return runCatching {
+        musicFormatterGson.fromJson(resultJson, MusicSearchResult::class.java)
+    }.getOrNull()
+}
+
 private fun formatDuration(seconds: Int): String {
     val minutes = seconds / 60
     val secs = seconds % 60
@@ -476,4 +772,9 @@ private fun shareText(context: android.content.Context, title: String, text: Str
         .putExtra(Intent.EXTRA_SUBJECT, title)
         .putExtra(Intent.EXTRA_TEXT, text)
     context.startActivity(Intent.createChooser(intent, title))
+}
+
+private fun openUrl(context: android.content.Context, url: String) {
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+    context.startActivity(intent)
 }

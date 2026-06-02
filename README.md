@@ -11,7 +11,8 @@ Android 우선 AI 녹음 요약 서비스 MVP입니다.
 
 - [구현현황](docs/IMPLEMENTATION_STATUS.md)
 - [초기 설정 및 실행](docs/SETUP_AND_RUN.md)
-- 원본 제품 요구사항: [PRD.md](PRD.md)
+- [노래찾기 구현 계획](docs/MUSIC_SEARCH_IMPLEMENTATION_PLAN.md)
+- 원본 제품 요구사항: [PRD.md](docs/PRD.md)
 
 ## 빠른 시작
 
@@ -31,4 +32,3 @@ uv run --extra dev pytest -q
 ```
 
 Android는 Android Studio에서 `android/` 디렉터리를 열어 실행합니다. 에뮬레이터 기본 API 주소는 `http://10.0.2.2:8000/`입니다.
-

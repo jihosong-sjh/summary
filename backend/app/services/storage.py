@@ -30,6 +30,19 @@ class StorageService:
                 extension = guessed.lower()
         return f"users/{user_id}/recordings/{recording_id}/audio{extension}"
 
+    def build_music_search_key(
+        self,
+        user_id: str,
+        music_search_id: str,
+        file_name: str | None = None,
+    ) -> str:
+        extension = ".m4a"
+        if file_name:
+            guessed = Path(file_name).suffix
+            if guessed:
+                extension = guessed.lower()
+        return f"users/{user_id}/music-searches/{music_search_id}/audio{extension}"
+
     def create_presigned_put_url(self, object_key: str, content_type: str) -> UploadUrlResponse:
         settings = get_settings()
         presign_endpoint = settings.s3_public_base_url or settings.s3_endpoint_url

@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_stt_model: str = "gpt-4o-mini-transcribe"
     openai_summary_model: str = "gpt-5.5"
+    openai_music_search_model: str = "gpt-5.5"
     openai_transcription_max_bytes: int = 24 * 1024 * 1024
 
     s3_endpoint_url: str | None = None

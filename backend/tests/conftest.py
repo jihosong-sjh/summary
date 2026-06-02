@@ -17,6 +17,17 @@ class FakeStorage:
             suffix = "." + file_name.rsplit(".", 1)[1]
         return f"users/{user_id}/recordings/{recording_id}/audio{suffix}"
 
+    def build_music_search_key(
+        self,
+        user_id: str,
+        music_search_id: str,
+        file_name: str | None = None,
+    ) -> str:
+        suffix = ".m4a"
+        if file_name and "." in file_name:
+            suffix = "." + file_name.rsplit(".", 1)[1]
+        return f"users/{user_id}/music-searches/{music_search_id}/audio{suffix}"
+
     def create_presigned_put_url(self, object_key: str, content_type: str):
         from app.schemas.recording import UploadUrlResponse
 
@@ -33,9 +44,13 @@ class FakeStorage:
 class FakeQueue:
     def __init__(self) -> None:
         self.enqueued: list[str] = []
+        self.music_search_enqueued: list[str] = []
 
     def enqueue_recording_processing(self, recording_id: str) -> None:
         self.enqueued.append(recording_id)
+
+    def enqueue_music_search_processing(self, music_search_id: str) -> None:
+        self.music_search_enqueued.append(music_search_id)
 
 
 @pytest.fixture()
@@ -49,7 +64,7 @@ def client(tmp_path, monkeypatch) -> Generator[tuple[TestClient, sessionmaker, F
 
     get_settings.cache_clear()
 
-    from app.api import recordings
+    from app.api import music_searches, recordings
     from app.db.session import Base, get_db
     from app.main import create_app
 
@@ -74,7 +89,8 @@ def client(tmp_path, monkeypatch) -> Generator[tuple[TestClient, sessionmaker, F
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[recordings.get_storage_service] = lambda: fake_storage
     app.dependency_overrides[recordings.get_processing_queue] = lambda: fake_queue
+    app.dependency_overrides[music_searches.get_storage_service] = lambda: fake_storage
+    app.dependency_overrides[music_searches.get_processing_queue] = lambda: fake_queue
 
     with TestClient(app) as test_client:
         yield test_client, TestingSessionLocal, fake_storage, fake_queue
-

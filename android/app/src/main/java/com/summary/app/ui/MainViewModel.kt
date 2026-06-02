@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.summary.app.SummaryApplication
+import com.summary.app.data.MusicSearchEntity
 import com.summary.app.data.RecordingEntity
 import com.summary.app.recording.AudioRecorder
 import com.summary.app.recording.RecordingForegroundService
@@ -27,19 +28,32 @@ data class RecordingSessionState(
     val errorMessage: String? = null,
 )
 
+data class MusicSearchSessionState(
+    val isRecording: Boolean = false,
+    val elapsedSeconds: Int = 0,
+    val errorMessage: String? = null,
+)
+
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = (application as SummaryApplication).container.repository
     private val recorder = AudioRecorder(application)
+    private val musicRecorder = AudioRecorder(application)
     private val _sessionState = MutableStateFlow(RecordingSessionState())
+    private val _musicSearchSessionState = MutableStateFlow(MusicSearchSessionState())
     private var ticker: Job? = null
+    private var musicTicker: Job? = null
     private var startedAtMillis: Long = 0L
+    private var musicStartedAtMillis: Long = 0L
     private var pausedSeconds: Int = 0
 
     val sessionState: StateFlow<RecordingSessionState> = _sessionState.asStateFlow()
+    val musicSearchSessionState: StateFlow<MusicSearchSessionState> = _musicSearchSessionState.asStateFlow()
     val recordings: Flow<List<RecordingEntity>> = repository.recordings
+    val musicSearches: Flow<List<MusicSearchEntity>> = repository.musicSearches
     val isAuthenticated: Flow<Boolean> = repository.isAuthenticated
 
     fun observeRecording(localId: Long): Flow<RecordingEntity?> = repository.observeRecording(localId)
+    fun observeMusicSearch(localId: Long): Flow<MusicSearchEntity?> = repository.observeMusicSearch(localId)
 
     fun login(email: String, password: String, onError: (String) -> Unit) {
         viewModelScope.launch {
@@ -64,6 +78,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun startRecording(context: Context) {
+        if (_musicSearchSessionState.value.isRecording) {
+            _sessionState.value = RecordingSessionState(errorMessage = "노래찾기 녹음이 끝난 뒤 시작할 수 있습니다.")
+            return
+        }
         runCatching {
             val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
             val file = File(context.filesDir, "recordings/summary-$stamp.m4a")
@@ -75,6 +93,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             startTicker()
         }.onFailure {
             _sessionState.value = RecordingSessionState(errorMessage = it.message ?: "녹음을 시작할 수 없습니다.")
+        }
+    }
+
+    fun startMusicSearch(context: Context) {
+        if (_sessionState.value.isRecording) {
+            _musicSearchSessionState.value = MusicSearchSessionState(errorMessage = "녹음이 끝난 뒤 노래찾기를 시작할 수 있습니다.")
+            return
+        }
+        runCatching {
+            val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+            val file = File(context.filesDir, "music-searches/music-$stamp.m4a")
+            musicRecorder.start(file)
+            RecordingForegroundService.start(context)
+            musicStartedAtMillis = System.currentTimeMillis()
+            _musicSearchSessionState.value = MusicSearchSessionState(isRecording = true)
+            startMusicTicker(context)
+        }.onFailure {
+            _musicSearchSessionState.value = MusicSearchSessionState(errorMessage = it.message ?: "노래찾기 녹음을 시작할 수 없습니다.")
         }
     }
 
@@ -109,6 +145,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun stopMusicSearch(context: Context) {
+        finishMusicSearch(context, _musicSearchSessionState.value.elapsedSeconds, cancelTicker = true)
+    }
+
     fun updateLocalSummary(localId: Long, summaryJson: String) {
         viewModelScope.launch { repository.updateLocalSummary(localId, summaryJson) }
     }
@@ -117,9 +157,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { repository.deleteRecording(localId) }
     }
 
+    fun deleteMusicSearch(localId: Long) {
+        viewModelScope.launch { repository.deleteMusicSearch(localId) }
+    }
+
     override fun onCleared() {
         recorder.stopSilently()
+        musicRecorder.stopSilently()
         ticker?.cancel()
+        musicTicker?.cancel()
     }
 
     private fun startTicker() {
@@ -132,5 +178,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
-}
 
+    private fun startMusicTicker(context: Context) {
+        musicTicker?.cancel()
+        musicTicker = viewModelScope.launch {
+            while (true) {
+                val elapsed = ((System.currentTimeMillis() - musicStartedAtMillis) / 1000).toInt()
+                    .coerceAtMost(MUSIC_SEARCH_SECONDS)
+                _musicSearchSessionState.value = _musicSearchSessionState.value.copy(elapsedSeconds = elapsed)
+                if (elapsed >= MUSIC_SEARCH_SECONDS) {
+                    finishMusicSearch(context, MUSIC_SEARCH_SECONDS, cancelTicker = false)
+                    break
+                }
+                delay(250)
+            }
+        }
+    }
+
+    private fun finishMusicSearch(context: Context, elapsed: Int, cancelTicker: Boolean) {
+        if (cancelTicker) musicTicker?.cancel()
+        musicTicker = null
+        val file = musicRecorder.stop()
+        RecordingForegroundService.stop(context)
+        _musicSearchSessionState.value = MusicSearchSessionState()
+        if (file != null && file.length() > 0L) {
+            viewModelScope.launch {
+                repository.createLocalMusicSearch(
+                    file = file,
+                    durationSeconds = elapsed.coerceAtMost(MUSIC_SEARCH_SECONDS),
+                )
+            }
+        }
+    }
+
+    companion object {
+        const val MUSIC_SEARCH_SECONDS = 12
+    }
+}

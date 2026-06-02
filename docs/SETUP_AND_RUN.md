@@ -36,6 +36,12 @@ JWT_SECRET=긴-랜덤-문자열
 S3_PUBLIC_BASE_URL=http://localhost:9000
 ```
 
+노래찾기 후보 검색 모델은 기본값이 `gpt-5.5`입니다. 필요하면 아래 환경변수로 바꿀 수 있습니다.
+
+```bash
+OPENAI_MUSIC_SEARCH_MODEL=gpt-5.5
+```
+
 Android 에뮬레이터에서 MinIO presigned URL로 직접 업로드하려면 `S3_PUBLIC_BASE_URL`을 아래처럼 바꿉니다.
 
 ```bash
@@ -141,7 +147,7 @@ uv run --extra dev pytest -q
 현재 확인된 결과:
 
 ```text
-4 passed, 1 warning
+13 passed, 1 warning
 ```
 
 ## 6. Android 앱 실행
@@ -176,6 +182,7 @@ Gradle CLI가 설치되어 있다면:
 
 ```bash
 cd android
+gradle :app:assembleDebug
 gradle :app:assembleDebug -PSUMMARY_API_BASE_URL=http://192.168.x.x:8000/
 gradle :app:assembleDebug -PSUMMARY_API_BASE_URL=http://127.0.0.1:8000/
 ```
@@ -205,6 +212,13 @@ adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 6. 처리가 완료되면 상세 화면에서 원문과 요약을 확인합니다.
 7. 요약은 수정, 복사, 공유할 수 있습니다.
 8. 삭제하면 서버 오디오, transcript, summary 삭제 요청이 함께 실행됩니다.
+
+노래찾기 흐름:
+
+1. 하단 `노래찾기` 탭으로 이동합니다.
+2. `시작`을 누르면 12초간 마이크로 주변 음악을 녹음합니다.
+3. 앱은 클립을 업로드하고 서버는 STT excerpt와 web search 기반 곡 후보를 저장합니다.
+4. 최근 기록에서 상세 화면을 열어 후보와 출처 링크를 확인합니다.
 
 ## 8. 운영 전 확인해야 할 항목
 

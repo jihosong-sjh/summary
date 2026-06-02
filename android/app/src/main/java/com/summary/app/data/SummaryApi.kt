@@ -49,5 +49,25 @@ interface SummaryApi {
 
     @PATCH("recordings/{id}/summary")
     suspend fun updateSummary(@Path("id") id: String, @Body body: Map<String, SummaryPayload>): SummaryResponse
-}
 
+    @GET("music-searches")
+    suspend fun musicSearches(): List<MusicSearchResponse>
+
+    @POST("music-searches")
+    suspend fun createMusicSearch(@Body body: MusicSearchCreate): MusicSearchResponse
+
+    @GET("music-searches/{id}")
+    suspend fun musicSearch(@Path("id") id: String): MusicSearchResponse
+
+    @DELETE("music-searches/{id}")
+    suspend fun deleteMusicSearch(@Path("id") id: String)
+
+    @POST("music-searches/{id}/upload-url")
+    suspend fun musicSearchUploadUrl(@Path("id") id: String, @Body body: UploadUrlRequest): UploadUrlResponse
+
+    @POST("music-searches/{id}/complete-upload")
+    suspend fun completeMusicSearchUpload(@Path("id") id: String, @Body body: CompleteUploadRequest): MusicSearchResponse
+
+    @POST("music-searches/{id}/retry")
+    suspend fun retryMusicSearch(@Path("id") id: String): MusicSearchResponse
+}

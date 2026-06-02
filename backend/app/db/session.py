@@ -24,5 +24,4 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
-from app.models import recording, user  # noqa: E402,F401
-
+from app.models import music_search, recording, user  # noqa: E402,F401

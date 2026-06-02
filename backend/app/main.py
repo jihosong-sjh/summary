@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from app.api import auth, recordings
+from app.api import auth, music_searches, recordings
 from app.core.config import get_settings
 from app.db.session import Base, engine
 
@@ -18,6 +18,7 @@ def create_app() -> FastAPI:
 
     app.include_router(auth.router, prefix="/auth", tags=["auth"])
     app.include_router(recordings.router, prefix="/recordings", tags=["recordings"])
+    app.include_router(music_searches.router, prefix="/music-searches", tags=["music-searches"])
 
     @app.get("/health", tags=["health"])
     def health() -> dict[str, str]:
@@ -27,4 +28,3 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-
